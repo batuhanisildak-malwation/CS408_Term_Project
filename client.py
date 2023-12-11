@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QPushButton, QLabel, QTextEdit, QHBoxLayout, QFrame
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt
 import socket
 import sys
 import threading
@@ -26,6 +27,31 @@ QTextEdit {
     padding: 10px;
     font-size: 15px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+"""
+
+# I am not a good designer but, better than the default one, I guess :P
+toast_error_stylesheet = """
+QLabel {
+    background-color: #a94442;
+    color: white;
+    border-radius: 4px;
+    padding: 12px;
+    font-weight: bold;
+    font-size: 16px;
+    text-align: center;
+}
+"""
+
+toast_default_stylesheet = """
+QLabel {
+    background-color: #242424;
+    color: white;
+    border-radius: 4px;
+    padding: 12px;
+    font-weight: bold;
+    font-size: 16px;
+    text-align: center;
 }
 """
 
@@ -68,6 +94,9 @@ class ClientGUI(QWidget):
         self.connectionLayout.addWidget(self.connectButton)
 
         self.statusLabel = QLabel(self)
+        self.statusLabel.setStyleSheet(toast_default_stylesheet)
+        self.statusLabel.setAlignment(Qt.AlignCenter)
+        self.statusLabel.setText('Welcome to the DiSUcord! \n Everything looks good right now, Please enter the host, port and username to connect to the server.')
         self.connectionLayout.addWidget(self.statusLabel)
 
         self.connectionFrame.setLayout(self.connectionLayout)
@@ -169,16 +198,54 @@ class ClientGUI(QWidget):
                 self.chatFrame.show()
                 threading.Thread(target=self.receiveMessages, daemon=True).start()
             else:
+                self.statusLabel.setStyleSheet(toast_error_stylesheet)
                 self.statusLabel.setText(response)
         except Exception as e:
-            self.statusLabel.setText('Connection failed, please make sure that the host and port are correct.')
+            self.statusLabel.setStyleSheet(toast_error_stylesheet)
+            self.statusLabel.setText('An error occured! \nConnection failed, please make sure that the host and port are correct.')
 
     def disconnectFromServer(self):
         if self.socket:
-            self.socket.send('command:quit'.encode('utf-8'))
-            self.connected = False
             self.socket.close()
-        self.close()
+            self.connected = False
+            self.chatFrame.hide()
+            self.connectionFrame.show()
+            self.if100Text.setText('')
+            self.sps101Text.setText('')
+            self.if100MessageInput.setText('')
+            self.sps101MessageInput.setText('')
+            self.hostInput.setText('')
+            self.portInput.setText('')
+            self.usernameInput.setText('')
+            self.connectToIf100Button.setVisible(True)
+            self.connectToSps101Button.setVisible(True)
+            self.disconnectFromIf100Button.setVisible(False)
+            self.disconnectFromSps101Button.setVisible(False)
+            self.sendToIf100Button.setVisible(False)
+            self.sendToSps101Button.setVisible(False)
+            self.statusLabel.setStyleSheet(toast_default_stylesheet)
+            self.statusLabel.setText('Welcome to the DiSUcord! \n Everything looks good right now, Please enter the host, port and username to connect to the server.')
+    
+    def serverErrorHandler(self):
+        if self.socket:
+            self.socket.close()
+            self.connected = False
+            self.chatFrame.hide()
+            self.connectionFrame.show()
+            self.if100Text.setText('')
+            self.sps101Text.setText('')
+            self.if100MessageInput.setText('')
+            self.sps101MessageInput.setText('')
+            self.hostInput.setText('')
+            self.portInput.setText('')
+            self.usernameInput.setText('')
+            self.connectToIf100Button.setVisible(True)
+            self.connectToSps101Button.setVisible(True)
+            self.disconnectFromIf100Button.setVisible(False)
+            self.disconnectFromSps101Button.setVisible(False)
+            self.sendToIf100Button.setVisible(False)
+            self.sendToSps101Button.setVisible(False)
+        
 
     @pyqtSlot(str, str)
     def displayMessage(self, channel, message):
@@ -200,36 +267,48 @@ class ClientGUI(QWidget):
                     else:
                         channel, msg = message.split(':')
                         print(f"Received message: {msg} from channel {channel}")
-                        self.message_received.emit(channel, msg)  # Emit the signal
+                        self.message_received.emit(channel, msg)
             except Exception as e:
-                print(f"An error occurred: {e}")
-                self.socket.close()
+                # If the connection is lost, close the socket and set the connected flag to false
                 break
 
     def connectToChannel(self, channelName, sendButton, connectButton, disconnectButton):
-        if self.socket and self.connected:
-            join_message = f"join:{channelName}"
-            print(join_message)
-            self.socket.send(join_message.encode('utf-8'))
-            sendButton.setVisible(True)
-            connectButton.setVisible(False)
-            disconnectButton.setVisible(True)
+        try:
+            if self.socket and self.connected:
+                join_message = f"join:{channelName}"
+                self.socket.send(join_message.encode('utf-8'))
+                sendButton.setVisible(True)
+                connectButton.setVisible(False)
+                disconnectButton.setVisible(True)
+        except Exception as e:
+            self.statusLabel.setStyleSheet(toast_error_stylesheet)
+            self.statusLabel.setText('An error occured! \n Connection between the server and the client is lost, please make sure that the server is running')
+            self.serverErrorHandler()
 
     def disconnectFromChannel(self, channelName, sendButton, connectButton, disconnectButton, textBox):
-        if self.socket and self.connected:
-            leave_message = f"leave:{channelName}"
-            print(leave_message)
-            self.socket.send(leave_message.encode('utf-8'))
-            sendButton.setVisible(False)
-            connectButton.setVisible(True)
-            disconnectButton.setVisible(False)
-            textBox.setText('')
+        try:
+            if self.socket and self.connected:
+                leave_message = f"leave:{channelName}"
+                self.socket.send(leave_message.encode('utf-8'))
+                sendButton.setVisible(False)
+                connectButton.setVisible(True)
+                disconnectButton.setVisible(False)
+                textBox.setText('')
+        except Exception as e:
+            self.statusLabel.setStyleSheet(toast_error_stylesheet)
+            self.statusLabel.setText('An error occured! \n Connection between the server and the client is lost, please make sure that the server is running')
+            self.serverErrorHandler()
 
     def sendMessage(self, channelName, message, messageInput):
         if self.socket and self.connected:
             send_message = f"send:{channelName}:{message}"
-            self.socket.send(send_message.encode('utf-8'))
-            messageInput.setText('')
+            try:
+                self.socket.send(send_message.encode('utf-8'))
+                messageInput.setText('')
+            except Exception as e:
+                self.statusLabel.setStyleSheet(toast_error_stylesheet)
+                self.statusLabel.setText('An error occured! \n Connection between the server and the client is lost, please make sure that the server is running')
+                self.serverErrorHandler()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

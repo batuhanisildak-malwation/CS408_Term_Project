@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLineEdit
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLineEdit, QLabel
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 import sys
 import socket
@@ -80,21 +80,33 @@ class ServerGUI(QWidget):
         layout.addLayout(top_layout)
 
         bottom_layout = QHBoxLayout()
+        section_layout = QHBoxLayout()
+
+        connected_clients_label = QLabel("Connected Clients")
+        connected_clients_label.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
+        section_layout.addWidget(connected_clients_label)
         self.connected_clients_textbox.setReadOnly(True)
         self.connected_clients_textbox.setPlaceholderText('Connected Clients - 0')
         self.connected_clients_textbox.setStyleSheet(message_box_stylesheet)
         bottom_layout.addWidget(self.connected_clients_textbox)
 
+        if100_label = QLabel("Clients Subscribed to IF100")
+        if100_label.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
+        section_layout.addWidget(if100_label)
         self.if100_clients_textbox.setReadOnly(True)
         self.if100_clients_textbox.setPlaceholderText('Clients Subscribed to IF100 - 0')
         self.if100_clients_textbox.setStyleSheet(message_box_stylesheet)
         bottom_layout.addWidget(self.if100_clients_textbox)
 
+        sps101_label = QLabel("Clients Subscribed to SPS101")
+        sps101_label.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
+        section_layout.addWidget(sps101_label)
         self.sps101_clients_textbox.setReadOnly(True)
         self.sps101_clients_textbox.setPlaceholderText('Clients Subscribed to SPS101 - 0')
         self.sps101_clients_textbox.setStyleSheet(message_box_stylesheet)
         bottom_layout.addWidget(self.sps101_clients_textbox)
 
+        layout.addLayout(section_layout)
         layout.addLayout(bottom_layout)
 
         self.setLayout(layout)
@@ -127,7 +139,9 @@ class ServerGUI(QWidget):
         self.close()
 
     def updateLog(self, message):
-        self.logTextBox.append(message)
+        # Log format: [HH:MM:SS] message, this is what I am used to do in my backend projects
+        date = time.strftime("%H:%M:%S", time.localtime())
+        self.logTextBox.append(f"[{date}] {message}")
 
     @pyqtSlot()
     def update_connected_clients_display(self):
@@ -155,14 +169,17 @@ class DiSUcordServer:
         self.gui = None
 
     def start(self, gui, port):
+        print("Starting server...")
         self.PORT = port
         self.gui = gui
         self.running = True
         threading.Thread(target=self.run_server, daemon=True).start()
 
     def stop(self):
+        print("Stopping server...")
         self.running = False
         self.server_socket.close()
+        self.server_socket = None
 
     def run_server(self):
         try:
@@ -176,10 +193,11 @@ class DiSUcordServer:
                     conn, addr = self.server_socket.accept()
                     threading.Thread(target=self.client_thread, args=(conn, addr)).start()
                 except:
-                    self.gui.updateLog("Server error")
+                    self.stop()
                     break
         except socket.error as e:
             self.gui.updateLog(f"Socket error: {e}")
+
     def send_message_to_conn(self, conn, message):
         try:
             conn.send(message.encode('utf-8'))
@@ -189,6 +207,9 @@ class DiSUcordServer:
             self.gui.updateLog(f"Client {addr} disconnected")
             for channel in channels.values():
                 channel.discard(conn)
+            self.gui.update_clients_signal.emit()
+            self.gui.update_if100_signal.emit()
+            self.gui.update_sps101_signal.emit()
 
     def client_thread(self, conn, addr):
         username = None
@@ -207,15 +228,15 @@ class DiSUcordServer:
                 command, content = message.split(":", 1)
                 if command == "username":
                     if content in usernames:
-                        self.send_message_to_conn(conn, "Username already in use")
-                        self.gui.updateLog(f"{addr} tried to use username {content} which is already in use, aborted")
+                        self.send_message_to_conn(conn, "Username already in use, please try another one to connect.")
+                        self.gui.updateLog(f"{addr} tried to use username '{content}' which is already in use, aborted")
                     else:
                         usernames.add(content)
                         clients[conn] = content
                         username = content
                         self.send_message_to_conn(conn, "USER_SUCCESS")
                         self.gui.update_clients_signal.emit()
-                        self.gui.updateLog(f"Username {content} set for {addr}")
+                        self.gui.updateLog(f"Username '{content}' set for {addr}")
 
                 elif command == "join":
                     # This is a validation for unwanted behaviour, client that I made does not allow this to happen
@@ -273,7 +294,7 @@ class DiSUcordServer:
                     self.send_message_to_conn(conn, "INVALID_COMMAND")
                     self.gui.updateLog(f"Client {addr} aKa {'Anonymous User' if username is None else username} sent invalid command: {command}")
 
-        except self.server_socket as e:
+        except:
             self.gui.update_clients_signal.emit()
             self.gui.update_if100_signal.emit()
             self.gui.update_sps101_signal.emit()
